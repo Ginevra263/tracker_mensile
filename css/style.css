@@ -149,11 +149,11 @@ button, input, select, textarea {
 }
 
 .brand-icon {
+  display: block;
   width: 40px;
   height: 40px;
-  padding: 8px;
-  background: linear-gradient(135deg, #fb7185 0%, #ec4899 100%);
-  color: #fff;
+  object-fit: cover;
+  flex-shrink: 0;
   border-radius: var(--radius-md);
   box-shadow: 0 4px 14px rgba(236, 72, 153, 0.35);
   transition: transform var(--transition-fast);
