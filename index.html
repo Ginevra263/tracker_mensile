@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>PocketTracker 🌸 | Gestione Paghetta e Spese</title>
   <meta name="description"
-    content="Applicazione web moderna e responsive per il tracciamento della paghetta mensile e delle spese per città e categoria.">
+    content="Applicazione web moderna e responsive per il tracciamento della paghetta mensile e delle spese per categoria con tag città opzionale.">
   <meta name="theme-color" content="#fff5f8">
 
   <!-- Favicon / App Icon -->
@@ -178,7 +178,7 @@
             <rect x="14" y="14" width="7" height="7"></rect>
             <rect x="3" y="14" width="7" height="7"></rect>
           </svg>
-          <span>Panoramica Budget & Città</span>
+          <span>Panoramica Budget</span>
         </button>
         <button class="tab-btn" data-tab="expenses">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -199,12 +199,12 @@
         </button>
       </nav>
 
-      <!-- TAB 1: Panoramica Budget & Città -->
+      <!-- TAB 1: Panoramica Budget -->
       <section id="tab-overview" class="tab-pane active">
         <div class="section-toolbar">
           <div>
-            <h2 class="section-title">Budget per Città e Categoria</h2>
-            <p class="section-desc">Monitora l'avanzamento della spesa per ciascun capitolo nel mese selezionato.</p>
+            <h2 class="section-title">Budget per Categoria</h2>
+            <p class="section-desc">Monitora l'avanzamento della spesa e il saldo rimanente con allarmi visivi dinamici nel mese selezionato.</p>
           </div>
           <div class="toolbar-actions">
             <button id="quickAddExpenseTrigger" class="btn-secondary">
@@ -217,8 +217,8 @@
           </div>
         </div>
 
-        <!-- City Cards Container (Generated Dynamically) -->
-        <div class="city-cards-grid" id="cityCardsContainer">
+        <!-- Category Cards Container (Generated Dynamically) -->
+        <div class="category-cards-grid" id="categoryCardsContainer">
           <!-- Injected via JavaScript -->
         </div>
       </section>
@@ -241,6 +241,10 @@
               <select id="qaCategory" required>
                 <!-- Populated dynamically -->
               </select>
+            </div>
+            <div class="form-group form-group-city">
+              <label for="qaCity">Città <span class="optional-tag">(opzionale)</span></label>
+              <input type="text" id="qaCity" placeholder="Es. Milano, Brescia..." autocomplete="off">
             </div>
             <div class="form-group form-group-desc">
               <label for="qaDescription">Descrizione</label>
@@ -273,17 +277,17 @@
               <circle cx="11" cy="11" r="8"></circle>
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
-            <input type="text" id="expenseSearchInput" placeholder="Cerca spesa per descrizione o categoria...">
+            <input type="text" id="expenseSearchInput" placeholder="Cerca spesa per descrizione, categoria o città...">
           </div>
 
           <div class="filter-controls">
-            <select id="filterCitySelect">
-              <option value="ALL">Tutte le Città</option>
+            <select id="filterCategorySelect">
+              <option value="ALL">Tutte le Categorie</option>
               <!-- Populated dynamically -->
             </select>
 
-            <select id="filterCategorySelect">
-              <option value="ALL">Tutte le Categorie</option>
+            <select id="filterCitySelect">
+              <option value="ALL">Tutte le Città</option>
               <!-- Populated dynamically -->
             </select>
 
@@ -303,11 +307,12 @@
           <table class="expenses-table">
             <thead>
               <tr>
-                <th style="width: 140px;">Data</th>
-                <th style="width: 220px;">Categoria & Città</th>
+                <th style="width: 125px;">Data</th>
+                <th style="width: 190px;">Categoria</th>
+                <th style="width: 135px;">Città</th>
                 <th>Descrizione</th>
                 <th style="width: 130px; text-align: right;">Importo</th>
-                <th style="width: 100px; text-align: center;">Azioni</th>
+                <th style="width: 95px; text-align: center;">Azioni</th>
               </tr>
             </thead>
             <tbody id="expensesTableBody">
@@ -333,8 +338,30 @@
       <section id="tab-charts" class="tab-pane">
         <div class="section-toolbar">
           <div>
-            <h2 class="section-title">Analisi Grafica delle Spese</h2>
-            <p class="section-desc">Confronto tra budget stanziato ed effettivo utilizzo per categoria e città.</p>
+            <h2 class="section-title">Analisi Grafica & Statistiche</h2>
+            <p class="section-desc">Confronto storico a lungo termine, trend del risparmio e analisi del budget per categoria.</p>
+          </div>
+        </div>
+
+        <!-- NEW: Full-width Historical Monthly Comparison Chart Card -->
+        <div class="chart-card chart-card-full">
+          <div class="chart-header">
+            <div class="chart-title-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+              </svg>
+              <h3>Confronto Mensile Storico & Andamento Risparmio</h3>
+            </div>
+            <span class="chart-subtitle" id="historicalTrendSubtitle">Trend ultimi 6 mesi</span>
+          </div>
+
+          <!-- Dynamic historical KPI comparison banner -->
+          <div class="historical-stats-banner" id="historicalStatsBanner">
+            <!-- Populated dynamically via JavaScript -->
+          </div>
+
+          <div class="chart-canvas-wrapper chart-canvas-line">
+            <canvas id="historicalTrendChart"></canvas>
           </div>
         </div>
 
@@ -356,19 +383,19 @@
             </div>
           </div>
 
-          <!-- Chart 2: Budget vs Spese per Città (Bar Chart) -->
+          <!-- Chart 2: Budget vs Spese per Categoria (Bar Chart) -->
           <div class="chart-card">
             <div class="chart-header">
               <div class="chart-title-wrap">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M18 20V10M12 20V4M6 20v-6"></path>
                 </svg>
-                <h3>Budget vs Spesa per Città</h3>
+                <h3>Budget vs Spesa per Categoria</h3>
               </div>
               <span class="chart-subtitle">Confronto stanziamento vs speso reale</span>
             </div>
             <div class="chart-canvas-wrapper">
-              <canvas id="cityBarChart"></canvas>
+              <canvas id="categoryBarChart"></canvas>
             </div>
           </div>
         </div>
@@ -376,9 +403,9 @@
         <!-- Detailed Breakdown Summary Table -->
         <div class="breakdown-card">
           <div class="breakdown-header">
-            <h3>Riepilogo Avanzamento per Città</h3>
+            <h3>Riepilogo Avanzamento per Categoria</h3>
           </div>
-          <div class="city-summary-grid" id="citySummaryGrid">
+          <div class="category-summary-grid" id="categorySummaryGrid">
             <!-- Populated dynamically -->
           </div>
         </div>
@@ -416,10 +443,14 @@
             <input type="date" id="modalExpenseDate" required>
           </div>
           <div class="form-group">
-            <label for="modalExpenseCategory">Categoria & Città</label>
+            <label for="modalExpenseCategory">Categoria</label>
             <select id="modalExpenseCategory" required>
               <!-- Dynamic -->
             </select>
+          </div>
+          <div class="form-group">
+            <label for="modalExpenseCity">Città <span class="optional-tag">(opzionale)</span></label>
+            <input type="text" id="modalExpenseCity" placeholder="Es. Milano, Brescia, Roma..." autocomplete="off">
           </div>
           <div class="form-group">
             <label for="modalExpenseDesc">Descrizione</label>
@@ -448,7 +479,7 @@
       <div class="modal-header">
         <div>
           <h3>Gestione Categorie & Budget</h3>
-          <p class="modal-sub">Configura i budget mensili e le categorie suddivise per città.</p>
+          <p class="modal-sub">Configura le categorie e assegna i rispettivi budget mensili.</p>
         </div>
         <button class="modal-close-btn" data-close-modal="categoriesModal">&times;</button>
       </div>
@@ -457,24 +488,14 @@
         <div class="add-cat-card">
           <h4 class="subform-title">Aggiungi Nuova Categoria</h4>
           <form id="addCategoryForm" class="add-cat-form">
-            <div class="form-group">
-              <label for="newCatCity">Città</label>
-              <select id="newCatCity" required>
-                <!-- Populated with cities + "+ Nuova Città" -->
-              </select>
-            </div>
-            <div class="form-group hidden" id="customCityGroup">
-              <label for="customCityInput">Nome Nuova Città</label>
-              <input type="text" id="customCityInput" placeholder="Es. Milano, Roma...">
-            </div>
-            <div class="form-group">
+            <div class="form-group form-group-catname">
               <label for="newCatName">Nome Categoria</label>
-              <input type="text" id="newCatName" placeholder="Es. Palestra, Libri..." required autocomplete="off">
+              <input type="text" id="newCatName" placeholder="Es. Cena, Spesa, Extra..." required autocomplete="off">
             </div>
-            <div class="form-group">
+            <div class="form-group form-group-catbudget">
               <label for="newCatBudget">Budget Mensile (€)</label>
               <div class="input-currency-wrapper">
-                <input type="number" id="newCatBudget" step="0.50" min="0" placeholder="20,00" required>
+                <input type="number" id="newCatBudget" step="0.50" min="0" placeholder="50,00" required>
                 <span class="currency-symbol">€</span>
               </div>
             </div>
@@ -491,7 +512,7 @@
           </form>
         </div>
 
-        <!-- Categories List by City with Inline Budget Edit -->
+        <!-- Categories List with Inline Budget Edit -->
         <div class="categories-management-list" id="categoriesManagementContainer">
           <!-- Populated dynamically -->
         </div>

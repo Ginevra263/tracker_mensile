@@ -11,35 +11,28 @@
   // ==========================================
 
   const STORAGE_KEYS = {
-    CATEGORIES: 'pocket_tracker_categories_v1',
-    EXPENSES: 'pocket_tracker_expenses_v1',
+    CATEGORIES: 'pocket_tracker_categories_v2',
+    EXPENSES: 'pocket_tracker_expenses_v2',
     THEME: 'pocket_tracker_theme_v1'
   };
 
+  // Categorie di primo livello (senza nidificazione per città)
+  // Totale iniziale di default: 200,00 €
   const DEFAULT_CATEGORIES = [
-    // Brescia (Totale: 100 €)
-    { id: 'cat_bs_gelati', city: 'Brescia', name: 'Gelati', budget: 12.00, color: '#f472b6' },
-    { id: 'cat_bs_cena', city: 'Brescia', name: 'Cena', budget: 50.00, color: '#ec4899' },
-    { id: 'cat_bs_tennis', city: 'Brescia', name: 'Tennis/sport', budget: 24.00, color: '#fb7185' },
-    { id: 'cat_bs_extra', city: 'Brescia', name: 'Extra', budget: 14.00, color: '#e879f9' },
-
-    // Lissone (Totale: 90 €)
-    { id: 'cat_ls_colazioni', city: 'Lissone', name: 'Colazioni', budget: 10.00, color: '#fb923c' },
-    { id: 'cat_ls_uscite', city: 'Lissone', name: 'Uscite serali', budget: 40.00, color: '#f43f5e' },
-    { id: 'cat_ls_cene_pranzi', city: 'Lissone', name: 'Cene/pranzi', budget: 12.00, color: '#db2777' },
-    { id: 'cat_ls_spesa', city: 'Lissone', name: 'Spesa', budget: 28.00, color: '#fda4af' },
-
-    // Generale (Totale: 10 €)
-    { id: 'cat_gen_extra', city: 'Generale', name: 'Extra', budget: 10.00, color: '#c084fc' }
+    { id: 'cat_cena', name: 'Cena & Ristoranti', budget: 60.00, color: '#ec4899' },
+    { id: 'cat_spesa', name: 'Spesa Alimentari', budget: 45.00, color: '#f43f5e' },
+    { id: 'cat_uscite', name: 'Uscite serali & Bar', budget: 35.00, color: '#fb923c' },
+    { id: 'cat_sport', name: 'Sport & Svago', budget: 25.00, color: '#fb7185' },
+    { id: 'cat_gelati', name: 'Gelati & Dolci', budget: 15.00, color: '#f472b6' },
+    { id: 'cat_extra', name: 'Extra & Varie', budget: 20.00, color: '#c084fc' }
   ];
 
-  // Città e colori di badge associati - Palette Rose & Pink
-  const CITY_COLORS = {
-    'Brescia': '#f472b6',
-    'Lissone': '#ec4899',
-    'Generale': '#c084fc',
-    'Altro': '#fb7185'
-  };
+  // Palette colori armonici per le categorie (Rose, Coral, Lavender)
+  const CATEGORY_PALETTE = [
+    '#ec4899', '#f43f5e', '#fb7185', '#fb923c',
+    '#f472b6', '#e879f9', '#c084fc', '#a855f7',
+    '#db2777', '#f43f85', '#06b6d4', '#10b981'
+  ];
 
   // Helper per generare UUID semplici
   function generateId(prefix = 'id') {
@@ -60,7 +53,8 @@
     activeTab: 'overview',
     charts: {
       donut: null,
-      bar: null
+      bar: null,
+      line: null
     }
   };
 
@@ -102,39 +96,81 @@
     return `${y}-${m}-${d}`;
   }
 
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, function (m) {
+      switch (m) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        case "'": return '&#39;';
+        default: return m;
+      }
+    });
+  }
+
   // ==========================================
-  // PERSISTENZA LOCAL STORAGE
+  // PERSISTENZA LOCAL STORAGE & MIGRAZIONE
   // ==========================================
 
   function loadStateFromStorage() {
     try {
-      const storedCategories = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
-      if (storedCategories) {
-        state.categories = JSON.parse(storedCategories);
-        // Allinea automaticamente i colori delle categorie standard alla nuova palette rosa
-        const defaultColorMap = {};
-        DEFAULT_CATEGORIES.forEach(c => { defaultColorMap[c.id] = c.color; });
-        let updated = false;
-        state.categories.forEach(cat => {
-          if (defaultColorMap[cat.id] && cat.color !== defaultColorMap[cat.id]) {
-            cat.color = defaultColorMap[cat.id];
-            updated = true;
+      const storedCategoriesV2 = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
+
+      if (storedCategoriesV2) {
+        state.categories = JSON.parse(storedCategoriesV2);
+      } else {
+        // Tentativo di migrazione dalla v1 (con nidificazione per città)
+        const storedCategoriesV1 = localStorage.getItem('pocket_tracker_categories_v1');
+        const storedExpensesV1 = localStorage.getItem('pocket_tracker_expenses_v1');
+
+        if (storedCategoriesV1) {
+          const oldCats = JSON.parse(storedCategoriesV1);
+          const oldCatCityMap = {};
+          oldCats.forEach(c => { oldCatCityMap[c.id] = c.city || ''; });
+
+          // Ristruttura le categorie eliminando la nidificazione per città
+          const newCatsMap = {};
+          oldCats.forEach(c => {
+            const cleanName = c.name.trim();
+            if (!newCatsMap[cleanName]) {
+              newCatsMap[cleanName] = {
+                id: c.id,
+                name: cleanName,
+                budget: Number(c.budget) || 0,
+                color: c.color || CATEGORY_PALETTE[Object.keys(newCatsMap).length % CATEGORY_PALETTE.length]
+              };
+            } else {
+              // Somma il budget per categorie con lo stesso nome
+              newCatsMap[cleanName].budget += (Number(c.budget) || 0);
+            }
+          });
+
+          state.categories = Object.values(newCatsMap);
+          saveCategoriesToStorage();
+
+          // Migra le spese v1 trasformando la città in tag opzionale
+          if (storedExpensesV1) {
+            const oldExpenses = JSON.parse(storedExpensesV1);
+            state.expenses = oldExpenses.map(e => ({
+              ...e,
+              city: e.city || oldCatCityMap[e.categoryId] || ''
+            }));
+            saveExpensesToStorage();
           }
-        });
-        if (updated) {
+        } else {
+          // Nessun dato pregresso: inizializza con i default v2
+          state.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
           saveCategoriesToStorage();
         }
-      } else {
-        state.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
-        saveCategoriesToStorage();
       }
 
-      const storedExpenses = localStorage.getItem(STORAGE_KEYS.EXPENSES);
-      if (storedExpenses) {
-        state.expenses = JSON.parse(storedExpenses);
-      } else {
-        // Se è la primissima volta, aggiungiamo alcune spese demo realistiche per il mese corrente
-        // per permettere all'utente di apprezzare subito il design e i grafici interattivi
+      const storedExpensesV2 = localStorage.getItem(STORAGE_KEYS.EXPENSES);
+      if (storedExpensesV2) {
+        state.expenses = JSON.parse(storedExpensesV2);
+      } else if (!state.expenses || state.expenses.length === 0) {
+        // Popola con dati demo storici realistici per i grafici e le statistiche
         state.expenses = createInitialDemoExpenses();
         saveExpensesToStorage();
       }
@@ -144,9 +180,9 @@
         state.theme = storedTheme;
       }
     } catch (e) {
-      console.error('Errore durante il caricamento dei dati da localStorage:', e);
+      console.error('Errore durante il caricamento da localStorage:', e);
       state.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
-      state.expenses = [];
+      state.expenses = createInitialDemoExpenses();
     }
   }
 
@@ -176,17 +212,116 @@
     }
   }
 
+  /**
+   * Crea un set di spese demo distribuite su 6 mesi (5 mesi precedenti + mese corrente)
+   * per mostrare subito il grafico di confronto storico e i trend di risparmio.
+   */
   function createInitialDemoExpenses() {
-    const y = state.selectedYear;
-    const m = String(state.selectedMonth + 1).padStart(2, '0');
-    return [
-      { id: generateId('exp'), date: `${y}-${m}-01`, categoryId: 'cat_ls_colazioni', description: 'Caffè e cornetto al bar', amount: 3.50 },
-      { id: generateId('exp'), date: `${y}-${m}-02`, categoryId: 'cat_bs_gelati', description: 'Coppetta pistacchio e nocciola', amount: 4.00 },
-      { id: generateId('exp'), date: `${y}-${m}-03`, categoryId: 'cat_ls_spesa', description: 'Spesa supermercato', amount: 16.80 },
-      { id: generateId('exp'), date: `${y}-${m}-05`, categoryId: 'cat_bs_tennis', description: 'Prenotazione campo da tennis', amount: 12.00 },
-      { id: generateId('exp'), date: `${y}-${m}-07`, categoryId: 'cat_bs_cena', description: 'Pizzata con gli amici', amount: 22.00 },
-      { id: generateId('exp'), date: `${y}-${m}-10`, categoryId: 'cat_ls_uscite', description: 'Aperitivo in centro', amount: 15.00 }
+    const expenses = [];
+    const currentY = state.selectedYear;
+    const currentM = state.selectedMonth; // 0-11
+
+    // Template di spese per generare trend realistici nei mesi precedenti
+    const monthlyBlueprints = [
+      // Mese -5
+      {
+        monthOffset: -5,
+        items: [
+          { cat: 'cat_cena', city: 'Brescia', desc: 'Cena inaugurazione', amount: 35.00, day: '04' },
+          { cat: 'cat_spesa', city: 'Lissone', desc: 'Spesa Esselunga', amount: 38.50, day: '10' },
+          { cat: 'cat_uscite', city: 'Milano', desc: 'Aperitivo colleghi', amount: 22.00, day: '15' },
+          { cat: 'cat_sport', city: '', desc: 'Abbonamento palestra', amount: 25.00, day: '18' },
+          { cat: 'cat_gelati', city: 'Brescia', desc: 'Gelato centro', amount: 5.50, day: '22' },
+          { cat: 'cat_extra', city: '', desc: 'Ricarica telefonica', amount: 15.00, day: '27' }
+        ]
+      },
+      // Mese -4
+      {
+        monthOffset: -4,
+        items: [
+          { cat: 'cat_cena', city: 'Milano', desc: 'Pizzeria con amici', amount: 48.00, day: '03' },
+          { cat: 'cat_spesa', city: '', desc: 'Spesa settimanale', amount: 42.00, day: '09' },
+          { cat: 'cat_uscite', city: 'Lissone', desc: 'Cocktail bar', amount: 28.00, day: '16' },
+          { cat: 'cat_sport', city: 'Brescia', desc: 'Campo da paddle', amount: 18.00, day: '21' },
+          { cat: 'cat_gelati', city: '', desc: 'Coppette gelato', amount: 6.00, day: '25' },
+          { cat: 'cat_extra', city: 'Milano', desc: 'Cinema e snack', amount: 19.50, day: '28' }
+        ]
+      },
+      // Mese -3
+      {
+        monthOffset: -3,
+        items: [
+          { cat: 'cat_cena', city: 'Brescia', desc: 'Trattoria tipica', amount: 38.00, day: '05' },
+          { cat: 'cat_spesa', city: 'Lissone', desc: 'Spesa biologica', amount: 34.00, day: '11' },
+          { cat: 'cat_uscite', city: 'Milano', desc: 'Serata musica live', amount: 24.00, day: '17' },
+          { cat: 'cat_sport', city: '', desc: 'Nuoto libero', amount: 14.00, day: '23' },
+          { cat: 'cat_extra', city: '', desc: 'Libri e riviste', amount: 16.00, day: '26' }
+        ]
+      },
+      // Mese -2
+      {
+        monthOffset: -2,
+        items: [
+          { cat: 'cat_cena', city: 'Milano', desc: 'Cena sushi all you can eat', amount: 55.00, day: '06' },
+          { cat: 'cat_spesa', city: 'Brescia', desc: 'Supermercato scorte', amount: 44.00, day: '12' },
+          { cat: 'cat_uscite', city: 'Brescia', desc: 'Aperitivo lungo', amount: 30.00, day: '18' },
+          { cat: 'cat_sport', city: '', desc: 'Torneo tennis', amount: 20.00, day: '22' },
+          { cat: 'cat_gelati', city: 'Lissone', desc: 'Gelato artigianale', amount: 7.00, day: '25' },
+          { cat: 'cat_extra', city: '', desc: 'Accessori tech', amount: 18.00, day: '29' }
+        ]
+      },
+      // Mese -1
+      {
+        monthOffset: -1,
+        items: [
+          { cat: 'cat_cena', city: 'Brescia', desc: 'Cena gourmet amici', amount: 45.00, day: '04' },
+          { cat: 'cat_spesa', city: 'Lissone', desc: 'Spesa discount', amount: 39.00, day: '10' },
+          { cat: 'cat_uscite', city: 'Milano', desc: 'Drink serali', amount: 26.00, day: '16' },
+          { cat: 'cat_sport', city: 'Brescia', desc: 'Noleggio racchette', amount: 15.00, day: '20' },
+          { cat: 'cat_gelati', city: '', desc: 'Granite estive', amount: 5.00, day: '24' },
+          { cat: 'cat_extra', city: '', desc: 'Regalo compleanno', amount: 22.00, day: '27' }
+        ]
+      },
+      // Mese corrente
+      {
+        monthOffset: 0,
+        items: [
+          { cat: 'cat_cena', city: 'Brescia', desc: 'Pizzata con gli amici', amount: 24.50, day: '02' },
+          { cat: 'cat_spesa', city: 'Lissone', desc: 'Supermercato settimanale', amount: 28.00, day: '04' },
+          { cat: 'cat_uscite', city: 'Milano', desc: 'Aperitivo in centro', amount: 14.00, day: '07' },
+          { cat: 'cat_sport', city: '', desc: 'Prenotazione campo tennis', amount: 12.00, day: '09' },
+          { cat: 'cat_gelati', city: 'Brescia', desc: 'Gelato artigianale pistacchio', amount: 4.50, day: '11' },
+          { cat: 'cat_extra', city: '', desc: 'Cancelleria e libri', amount: 15.00, day: '14' }
+        ]
+      }
     ];
+
+    monthlyBlueprints.forEach(bp => {
+      let targetM = currentM + bp.monthOffset;
+      let targetY = currentY;
+      while (targetM < 0) {
+        targetM += 12;
+        targetY--;
+      }
+      while (targetM > 11) {
+        targetM -= 12;
+        targetY++;
+      }
+      const mStr = String(targetM + 1).padStart(2, '0');
+
+      bp.items.forEach(it => {
+        expenses.push({
+          id: generateId('exp'),
+          date: `${targetY}-${mStr}-${it.day}`,
+          categoryId: it.cat,
+          city: it.city || '',
+          description: it.desc,
+          amount: it.amount
+        });
+      });
+    });
+
+    return expenses;
   }
 
   // ==========================================
@@ -194,7 +329,7 @@
   // ==========================================
 
   const dom = {
-    // Header & Navigation
+    // Header & Navigazione Mese
     prevMonthBtn: document.getElementById('prevMonthBtn'),
     nextMonthBtn: document.getElementById('nextMonthBtn'),
     todayBtn: document.getElementById('todayBtn'),
@@ -222,49 +357,51 @@
     tabPanes: document.querySelectorAll('.tab-pane'),
     expensesCountBadge: document.getElementById('expensesCountBadge'),
 
-    // Overview Tab
-    cityCardsContainer: document.getElementById('cityCardsContainer'),
+    // Tab 1: Panoramica Budget Categorie
+    categoryCardsContainer: document.getElementById('categoryCardsContainer'),
 
-    // Expenses Tab
+    // Tab 2: Registro Spese
     quickAddForm: document.getElementById('quickAddForm'),
     qaDate: document.getElementById('qaDate'),
     qaCategory: document.getElementById('qaCategory'),
+    qaCity: document.getElementById('qaCity'),
     qaDescription: document.getElementById('qaDescription'),
     qaAmount: document.getElementById('qaAmount'),
     expenseSearchInput: document.getElementById('expenseSearchInput'),
-    filterCitySelect: document.getElementById('filterCitySelect'),
     filterCategorySelect: document.getElementById('filterCategorySelect'),
+    filterCitySelect: document.getElementById('filterCitySelect'),
     exportCsvBtn: document.getElementById('exportCsvBtn'),
     expensesTableBody: document.getElementById('expensesTableBody'),
     expensesEmptyState: document.getElementById('expensesEmptyState'),
 
-    // Charts Tab
+    // Tab 3: Grafici & Statistiche
+    historicalTrendSubtitle: document.getElementById('historicalTrendSubtitle'),
+    historicalStatsBanner: document.getElementById('historicalStatsBanner'),
+    historicalTrendChart: document.getElementById('historicalTrendChart'),
     donutTotalSpentSubtitle: document.getElementById('donutTotalSpentSubtitle'),
     categoryDonutChart: document.getElementById('categoryDonutChart'),
-    cityBarChart: document.getElementById('cityBarChart'),
-    citySummaryGrid: document.getElementById('citySummaryGrid'),
+    categoryBarChart: document.getElementById('categoryBarChart'),
+    categorySummaryGrid: document.getElementById('categorySummaryGrid'),
 
-    // Modal: Expense
+    // Modale: Nuova / Modifica Spesa
     expenseModal: document.getElementById('expenseModal'),
     expenseModalForm: document.getElementById('expenseModalForm'),
     expenseModalTitle: document.getElementById('expenseModalTitle'),
     modalExpenseId: document.getElementById('modalExpenseId'),
     modalExpenseDate: document.getElementById('modalExpenseDate'),
     modalExpenseCategory: document.getElementById('modalExpenseCategory'),
+    modalExpenseCity: document.getElementById('modalExpenseCity'),
     modalExpenseDesc: document.getElementById('modalExpenseDesc'),
     modalExpenseAmount: document.getElementById('modalExpenseAmount'),
 
-    // Modal: Categories
+    // Modale: Gestione Categorie & Budget
     categoriesModal: document.getElementById('categoriesModal'),
     addCategoryForm: document.getElementById('addCategoryForm'),
-    newCatCity: document.getElementById('newCatCity'),
-    customCityGroup: document.getElementById('customCityGroup'),
-    customCityInput: document.getElementById('customCityInput'),
     newCatName: document.getElementById('newCatName'),
     newCatBudget: document.getElementById('newCatBudget'),
     categoriesManagementContainer: document.getElementById('categoriesManagementContainer'),
 
-    // Footer actions
+    // Footer & Notifiche
     backupDataBtn: document.getElementById('backupDataBtn'),
     restoreDataBtn: document.getElementById('restoreDataBtn'),
     hiddenRestoreInput: document.getElementById('hiddenRestoreInput'),
@@ -296,13 +433,15 @@
         spent: 0,
         budget: Number(cat.budget) || 0,
         balance: 0,
-        percentage: 0
+        percentage: 0,
+        expenses: []
       };
     });
 
     monthExpenses.forEach(exp => {
       if (statsMap[exp.categoryId]) {
         statsMap[exp.categoryId].spent += Number(exp.amount) || 0;
+        statsMap[exp.categoryId].expenses.push(exp);
       }
     });
 
@@ -315,33 +454,95 @@
     return statsMap;
   }
 
-  // Raggruppamento per città
-  function getStatsByCity() {
-    const catStats = calculateCategoryStats();
-    const citiesMap = {};
+  /**
+   * Logica degli Allarmi Visivi di Budget:
+   * - Verde: budget ampiamente disponibile (< 80% speso)
+   * - Giallo/Arancione: superato l'80% dello stanziamento (>= 80% e < 100%)
+   * - Rosso: raggiunto o superato il 100% dello stanziamento (>= 100%)
+   */
+  function getBudgetAlarmInfo(spent, budget) {
+    const percentage = budget > 0 ? (spent / budget) * 100 : (spent > 0 ? 100 : 0);
+    const balance = budget - spent;
 
-    state.categories.forEach(cat => {
-      const city = cat.city || 'Generale';
-      if (!citiesMap[city]) {
-        citiesMap[city] = {
-          city: city,
-          totalBudget: 0,
-          totalSpent: 0,
-          categories: []
-        };
+    if (percentage >= 100) {
+      const diff = Math.abs(balance);
+      const label = balance < 0 ? `Sforato di ${formatCurrency(diff)}` : 'Budget esaurito (0,00 €)';
+      return {
+        statusClass: 'badge-alarm-red',
+        progressClass: 'progress-red',
+        badgeText: label,
+        pctLabel: `${Math.round(percentage)}% (Sforato)`,
+        state: 'danger',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'
+      };
+    } else if (percentage >= 80) {
+      return {
+        statusClass: 'badge-alarm-yellow',
+        progressClass: 'progress-yellow',
+        badgeText: `Attenzione: ${formatCurrency(balance)} rimasti`,
+        pctLabel: `${Math.round(percentage)}% (In esaurimento)`,
+        state: 'warning',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
+      };
+    } else {
+      return {
+        statusClass: 'badge-alarm-green',
+        progressClass: 'progress-green',
+        badgeText: `Rimangono ${formatCurrency(balance)}`,
+        pctLabel: `${Math.round(percentage)}% (Disponibile)`,
+        state: 'success',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+      };
+    }
+  }
+
+  /**
+   * Calcola le statistiche storiche mensili per gli ultimi N mesi
+   * (confrontando la spesa totale e l'andamento del risparmio a lungo termine)
+   */
+  function getHistoricalMonthlyStats(numMonths = 6) {
+    const result = [];
+    const currentY = state.selectedYear;
+    const currentM = state.selectedMonth;
+
+    for (let i = numMonths - 1; i >= 0; i--) {
+      let targetM = currentM - i;
+      let targetY = currentY;
+      while (targetM < 0) {
+        targetM += 12;
+        targetY--;
       }
-      const stat = catStats[cat.id];
-      citiesMap[city].totalBudget += stat.budget;
-      citiesMap[city].totalSpent += stat.spent;
-      citiesMap[city].categories.push(stat);
-    });
+      while (targetM > 11) {
+        targetM -= 12;
+        targetY++;
+      }
 
-    Object.values(citiesMap).forEach(c => {
-      c.remainingBalance = c.totalBudget - c.totalSpent;
-      c.percentage = c.totalBudget > 0 ? (c.totalSpent / c.totalBudget) * 100 : 0;
-    });
+      const monthShort = getMonthNameIT(targetM).substring(0, 3);
+      const label = `${monthShort} ${String(targetY).slice(-2)}`;
 
-    return citiesMap;
+      const monthExpenses = state.expenses.filter(exp => {
+        if (!exp.date) return false;
+        const [y, m] = exp.date.split('-').map(Number);
+        return y === targetY && (m - 1) === targetM;
+      });
+
+      const totalSpent = monthExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+      const totalBudget = state.categories.reduce((sum, c) => sum + (Number(c.budget) || 0), 0);
+      const savings = totalBudget - totalSpent;
+
+      result.push({
+        year: targetY,
+        month: targetM,
+        label,
+        spent: totalSpent,
+        budget: totalBudget,
+        savings: savings,
+        count: monthExpenses.length,
+        isCurrent: i === 0
+      });
+    }
+
+    return result;
   }
 
   // ==========================================
@@ -402,11 +603,11 @@
     dom.kpiSpentPercentBadge.textContent = `${Math.round(spentPercent)}% del budget`;
     dom.kpiSpentCount.textContent = `${monthExpenses.length} ${monthExpenses.length === 1 ? 'spesa' : 'spese'}`;
 
-    // Badge Colore Spesa
+    // Badge Colore Spesa nel KPI
     if (spentPercent >= 100) {
       dom.kpiSpentPercentBadge.style.background = 'var(--color-danger-bg)';
       dom.kpiSpentPercentBadge.style.color = 'var(--color-danger)';
-    } else if (spentPercent >= 75) {
+    } else if (spentPercent >= 80) {
       dom.kpiSpentPercentBadge.style.background = 'var(--color-warning-bg)';
       dom.kpiSpentPercentBadge.style.color = 'var(--color-warning)';
     } else {
@@ -417,16 +618,18 @@
     // Saldo Rimanente
     dom.kpiRemainingBalance.textContent = formatCurrency(remainingBalance);
 
-    // Status Tag Saldo
-    if (remainingBalance < 0) {
+    // Status Tag Saldo - Segue coerentemente la logica degli allarmi visivi
+    if (spentPercent >= 100) {
       dom.kpiStatusTag.className = 'status-indicator-tag status-danger';
-      dom.kpiStatusTag.textContent = `Sforato di ${formatCurrency(Math.abs(remainingBalance))}`;
-    } else if (spentPercent >= 85) {
+      dom.kpiStatusTag.textContent = remainingBalance < 0
+        ? `Sforato di ${formatCurrency(Math.abs(remainingBalance))}`
+        : 'Budget esaurito';
+    } else if (spentPercent >= 80) {
       dom.kpiStatusTag.className = 'status-indicator-tag status-warning';
       dom.kpiStatusTag.textContent = `In esaurimento (${formatCurrency(remainingBalance)} rimasti)`;
     } else {
       dom.kpiStatusTag.className = 'status-indicator-tag status-positive';
-      dom.kpiStatusTag.textContent = 'In budget';
+      dom.kpiStatusTag.textContent = `In budget (+${formatCurrency(remainingBalance)})`;
     }
 
     // Badge conteggio nel tab spese
@@ -434,90 +637,114 @@
   }
 
   // ==========================================
-  // RENDERING: TAB 1 - PANORAMICA PER CITTÀ
+  // RENDERING: TAB 1 - PANORAMICA BUDGET PER CATEGORIA
   // ==========================================
 
-  function renderCityCards() {
-    const citiesMap = getStatsByCity();
-    dom.cityCardsContainer.innerHTML = '';
+  function renderCategoryCards() {
+    const catStats = calculateCategoryStats();
+    dom.categoryCardsContainer.innerHTML = '';
 
-    const cityNames = Object.keys(citiesMap);
-    if (cityNames.length === 0) {
-      dom.cityCardsContainer.innerHTML = `
-        <div class="empty-state">
-          <p>Nessuna categoria configurata. Clicca su "Budget & Categorie" per crearne una.</p>
+    const categoriesList = state.categories;
+
+    if (categoriesList.length === 0) {
+      dom.categoryCardsContainer.innerHTML = `
+        <div class="empty-state" style="grid-column: 1 / -1;">
+          <div class="empty-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <h4>Nessuna categoria configurata</h4>
+          <p>Clicca sul pulsante "Budget & Categorie" in alto per creare la tua prima categoria di spesa.</p>
         </div>
       `;
       return;
     }
 
-    cityNames.forEach(cityName => {
-      const cityData = citiesMap[cityName];
-      const cityBadgeColor = CITY_COLORS[cityName] || '#8b5cf6';
+    categoriesList.forEach(cat => {
+      const stat = catStats[cat.id] || { spent: 0, budget: cat.budget, balance: cat.budget, percentage: 0, expenses: [] };
+      const alarm = getBudgetAlarmInfo(stat.spent, stat.budget);
+      const progressClamped = Math.min(stat.percentage, 100);
+
+      // Estrai le città uniche registrate tra le spese di questa categoria per il mese corrente
+      const citySet = new Set();
+      stat.expenses.forEach(e => {
+        if (e.city && e.city.trim()) {
+          citySet.add(e.city.trim());
+        }
+      });
+      const uniqueCities = Array.from(citySet).slice(0, 3); // max 3 tag per mantenere il layout pulito
+
+      let cityTagsHtml = '';
+      if (uniqueCities.length > 0) {
+        cityTagsHtml = `
+          <div class="cat-city-tags" title="Tag città rilevati per questa categoria nel mese">
+            ${uniqueCities.map(c => `<span class="city-mini-tag">📍 ${escapeHtml(c)}</span>`).join('')}
+          </div>
+        `;
+      }
 
       const card = document.createElement('div');
-      card.className = 'city-card';
+      card.className = 'category-card';
+      card.setAttribute('data-cat-id', cat.id);
 
-      // Header della card
-      const headerHtml = `
-        <div class="city-card-header">
-          <div class="city-title-group">
-            <span class="city-badge-dot" style="background-color: ${cityBadgeColor};"></span>
-            <h3 class="city-title">${cityName}</h3>
+      card.innerHTML = `
+        <div class="category-card-header">
+          <div class="category-title-group">
+            <span class="category-badge-dot" style="background-color: ${cat.color || '#ec4899'}; color: ${cat.color || '#ec4899'};"></span>
+            <h3 class="category-card-title">${escapeHtml(cat.name)}</h3>
           </div>
-          <div class="city-totals">
-            <div class="spent">${formatCurrency(cityData.totalSpent)}</div>
-            <div class="budget">su ${formatCurrency(cityData.totalBudget)}</div>
+          <!-- Badge Allarme Visivo Dinamico per Saldo Rimanente -->
+          <span class="budget-alarm-badge ${alarm.statusClass}" title="${alarm.pctLabel}">
+            ${alarm.icon}
+            <span>${alarm.badgeText}</span>
+          </span>
+        </div>
+
+        <div class="category-card-body">
+          <div class="category-amounts-row">
+            <div class="cat-spent-wrap">
+              <span class="cat-spent-label">Speso questo mese</span>
+              <span class="cat-spent-val">${formatCurrency(stat.spent)}</span>
+            </div>
+            <div class="cat-budget-wrap">
+              <span class="cat-budget-label">Budget stanziato</span>
+              <span class="cat-budget-val">su ${formatCurrency(stat.budget)}</span>
+            </div>
+          </div>
+
+          <!-- Barra di avanzamento con colore dinamico coerente con l'allarme -->
+          <div class="progress-bar-container" title="${Math.round(stat.percentage)}% consumato">
+            <div class="progress-bar-fill ${alarm.progressClass}" style="width: ${progressClamped}%;"></div>
+          </div>
+
+          <div class="category-card-footer">
+            <span class="cat-footer-count">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+              </svg>
+              ${stat.expenses.length} ${stat.expenses.length === 1 ? 'spesa' : 'spese'}
+            </span>
+            ${cityTagsHtml}
+            <button class="btn-card-quick-add" data-cat-id="${cat.id}" title="Aggiungi una spesa per ${escapeHtml(cat.name)}">
+              + Aggiungi
+            </button>
           </div>
         </div>
       `;
 
-      // Categorie della città
-      let categoriesHtml = '<div class="category-items-list">';
-      cityData.categories.forEach(item => {
-        const cat = item.category;
-        const progressClamped = Math.min(item.percentage, 100);
+      dom.categoryCardsContainer.appendChild(card);
+    });
 
-        // Colore della barra in base alla percentuale
-        let progressClass = 'progress-green';
-        let balanceClass = 'status-positive';
-
-        if (item.percentage >= 100) {
-          progressClass = 'progress-red';
-          balanceClass = 'status-danger';
-        } else if (item.percentage >= 75) {
-          progressClass = 'progress-yellow';
-          balanceClass = 'status-warning';
-        }
-
-        const balanceLabel = item.balance >= 0
-          ? `Rimangono ${formatCurrency(item.balance)}`
-          : `Sforato di ${formatCurrency(Math.abs(item.balance))}`;
-
-        categoriesHtml += `
-          <div class="category-row">
-            <div class="category-meta">
-              <span class="category-name">
-                ${cat.name}
-              </span>
-              <div class="category-amounts">
-                <span class="spent-amount">${formatCurrency(item.spent)}</span>
-                <span class="budget-limit">/ ${formatCurrency(item.budget)}</span>
-                <span class="category-amounts balance-amount ${balanceClass}">
-                  ${balanceLabel}
-                </span>
-              </div>
-            </div>
-            <div class="progress-bar-container" title="${Math.round(item.percentage)}% consumato">
-              <div class="progress-bar-fill ${progressClass}" style="width: ${progressClamped}%"></div>
-            </div>
-          </div>
-        `;
+    // Event listener sul pulsante rapido "+ Aggiungi" presente su ogni card categoria
+    dom.categoryCardsContainer.querySelectorAll('.btn-card-quick-add').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openNewExpenseModal(btn.dataset.catId);
       });
-      categoriesHtml += '</div>';
-
-      card.innerHTML = headerHtml + categoriesHtml;
-      dom.cityCardsContainer.appendChild(card);
     });
   }
 
@@ -526,71 +753,61 @@
   // ==========================================
 
   function populateCategoryDropdowns() {
-    const cats = [...state.categories].sort((a, b) => {
-      if (a.city === b.city) return a.name.localeCompare(b.name);
-      return a.city.localeCompare(b.city);
-    });
+    const cats = [...state.categories].sort((a, b) => a.name.localeCompare(b.name));
 
-    // Per form aggiunta rapida
+    // Form rapido
     dom.qaCategory.innerHTML = '';
-    // Per modale spesa
+    // Modale spesa
     dom.modalExpenseCategory.innerHTML = '';
-    // Per filtro categoria
+    // Filtro categoria
     dom.filterCategorySelect.innerHTML = '<option value="ALL">Tutte le Categorie</option>';
 
-    // Raggruppa per città nel select
-    const cityGroups = {};
     cats.forEach(cat => {
-      const city = cat.city || 'Generale';
-      if (!cityGroups[city]) cityGroups[city] = [];
-      cityGroups[city].push(cat);
+      const optQa = document.createElement('option');
+      optQa.value = cat.id;
+      optQa.textContent = `${cat.name} (${formatCurrency(cat.budget)})`;
+      dom.qaCategory.appendChild(optQa);
+
+      const optModal = document.createElement('option');
+      optModal.value = cat.id;
+      optModal.textContent = `${cat.name} (Budget: ${formatCurrency(cat.budget)})`;
+      dom.modalExpenseCategory.appendChild(optModal);
+
+      const optFilter = document.createElement('option');
+      optFilter.value = cat.id;
+      optFilter.textContent = cat.name;
+      dom.filterCategorySelect.appendChild(optFilter);
     });
 
-    Object.keys(cityGroups).forEach(city => {
-      const optGroupQa = document.createElement('optgroup');
-      optGroupQa.label = city;
-
-      const optGroupModal = document.createElement('optgroup');
-      optGroupModal.label = city;
-
-      cityGroups[city].forEach(cat => {
-        const opt1 = document.createElement('option');
-        opt1.value = cat.id;
-        opt1.textContent = `${cat.name} (${formatCurrency(cat.budget)})`;
-        optGroupQa.appendChild(opt1);
-
-        const opt2 = document.createElement('option');
-        opt2.value = cat.id;
-        opt2.textContent = `${cat.name} [${city}] (${formatCurrency(cat.budget)})`;
-        optGroupModal.appendChild(opt2);
-
-        // Per il filtro
-        const optFilter = document.createElement('option');
-        optFilter.value = cat.id;
-        optFilter.textContent = `${cat.name} (${city})`;
-        dom.filterCategorySelect.appendChild(optFilter);
-      });
-
-      dom.qaCategory.appendChild(optGroupQa);
-      dom.modalExpenseCategory.appendChild(optGroupModal);
+    // Popola il filtro Città raccogliendo tutti i tag città presenti nelle spese registrate
+    const citySet = new Set();
+    state.expenses.forEach(e => {
+      if (e.city && e.city.trim()) {
+        citySet.add(e.city.trim());
+      }
     });
 
-    // Popola anche il filtro città
-    const cities = Array.from(new Set(state.categories.map(c => c.city || 'Generale'))).sort();
-    dom.filterCitySelect.innerHTML = '<option value="ALL">Tutte le Città</option>';
-    cities.forEach(city => {
+    const currentFilterCityVal = dom.filterCitySelect.value;
+    dom.filterCitySelect.innerHTML = '<option value="ALL">Tutte le Città</option><option value="__NONE__">Senza Città</option>';
+
+    Array.from(citySet).sort().forEach(city => {
       const opt = document.createElement('option');
       opt.value = city;
       opt.textContent = city;
       dom.filterCitySelect.appendChild(opt);
     });
+
+    // Ripristina valore selezionato se ancora valido
+    if (currentFilterCityVal && (currentFilterCityVal === 'ALL' || currentFilterCityVal === '__NONE__' || citySet.has(currentFilterCityVal))) {
+      dom.filterCitySelect.value = currentFilterCityVal;
+    }
   }
 
   function renderExpensesTable() {
     const monthExpenses = getSelectedMonthExpenses();
     const query = dom.expenseSearchInput.value.trim().toLowerCase();
-    const cityFilter = dom.filterCitySelect.value;
     const catFilter = dom.filterCategorySelect.value;
+    const cityFilter = dom.filterCitySelect.value;
 
     const catMap = {};
     state.categories.forEach(c => { catMap[c.id] = c; });
@@ -598,22 +815,25 @@
     // Filtraggio
     let filtered = monthExpenses.filter(exp => {
       const cat = catMap[exp.categoryId];
-      const cityName = cat ? (cat.city || 'Generale') : '';
       const catName = cat ? cat.name.toLowerCase() : '';
+      const cityName = (exp.city || '').toLowerCase();
       const desc = (exp.description || '').toLowerCase();
 
-      // Filtro testo
-      if (query && !desc.includes(query) && !catName.includes(query) && !cityName.toLowerCase().includes(query)) {
-        return false;
-      }
-      // Filtro città
-      if (cityFilter !== 'ALL' && cityName !== cityFilter) {
+      // Filtro testo (cerca in descrizione, nome categoria o tag città)
+      if (query && !desc.includes(query) && !catName.includes(query) && !cityName.includes(query)) {
         return false;
       }
       // Filtro categoria
       if (catFilter !== 'ALL' && exp.categoryId !== catFilter) {
         return false;
       }
+      // Filtro città
+      if (cityFilter === '__NONE__') {
+        if (exp.city && exp.city.trim().length > 0) return false;
+      } else if (cityFilter !== 'ALL') {
+        if ((exp.city || '').trim().toLowerCase() !== cityFilter.toLowerCase()) return false;
+      }
+
       return true;
     });
 
@@ -629,18 +849,20 @@
     }
 
     filtered.forEach(exp => {
-      const cat = catMap[exp.categoryId] || { name: 'Non assegnata', city: 'N/A' };
-      const cityBadgeColor = CITY_COLORS[cat.city] || '#8b5cf6';
+      const cat = catMap[exp.categoryId] || { name: 'Non assegnata', color: '#8b5cf6' };
+      const cityTag = (exp.city && exp.city.trim()) ? exp.city.trim() : '';
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td data-label="Data">${formatDateIT(exp.date)}</td>
-        <td data-label="Categoria & Città">
-          <span class="cat-pill" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255,255,255,0.1);">
-            <span class="city-badge-dot" style="background-color: ${cityBadgeColor};"></span>
-            <strong>${cat.name}</strong>
-            <span class="city-tag">(${cat.city})</span>
+        <td data-label="Categoria">
+          <span class="cat-pill" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1);">
+            <span class="category-badge-dot" style="background-color: ${cat.color || '#ec4899'}; color: ${cat.color || '#ec4899'};"></span>
+            <strong>${escapeHtml(cat.name)}</strong>
           </span>
+        </td>
+        <td data-label="Città">
+          ${cityTag ? `<span class="city-tag-pill" title="Città: ${escapeHtml(cityTag)}">📍 ${escapeHtml(cityTag)}</span>` : '<span style="color: var(--text-muted); opacity: 0.5;">-</span>'}
         </td>
         <td data-label="Descrizione">${escapeHtml(exp.description || '-')}</td>
         <td data-label="Importo" class="expense-amount-cell" style="text-align: right; color: var(--color-danger);">
@@ -686,11 +908,168 @@
     const totalSpent = monthExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
     dom.donutTotalSpentSubtitle.textContent = `${formatCurrency(totalSpent)} totali spesi`;
 
-    // 1. Chart Categorie (Donut)
-    // Filtra solo categorie con spesa > 0 per un grafico pulito
-    const activeStats = Object.values(catStats).filter(item => item.spent > 0);
+    // -------------------------------------------------------------
+    // 1. GRAFICO A LINEE: CONFRONTO MENSILE STORICO & RISPARMIO
+    // -------------------------------------------------------------
+    const historicalData = getHistoricalMonthlyStats(6);
+    const lineLabels = historicalData.map(h => h.label);
+    const lineSpentData = historicalData.map(h => h.spent);
+    const lineBudgetData = historicalData.map(h => h.budget);
 
-    const donutLabels = activeStats.map(s => `${s.category.name} (${s.category.city})`);
+    // Calcolo statistiche per il banner di confronto storico
+    const currentMonthData = historicalData[historicalData.length - 1];
+    const prevMonthsData = historicalData.slice(0, historicalData.length - 1);
+    const prevSpentSum = prevMonthsData.reduce((s, h) => s + h.spent, 0);
+    const prevAvgSpent = prevMonthsData.length > 0 ? (prevSpentSum / prevMonthsData.length) : currentMonthData.spent;
+
+    // Risparmio a lungo termine (somma dei risparmi positivi nei mesi storici considerati)
+    const totalHistoricalSavings = historicalData.reduce((s, h) => s + (h.budget - h.spent), 0);
+    const diffFromAvg = prevAvgSpent - currentMonthData.spent; // positivo = speso meno della media (risparmio aumentato)
+    const diffPct = prevAvgSpent > 0 ? Math.round((Math.abs(diffFromAvg) / prevAvgSpent) * 100) : 0;
+
+    let diffBadgeHtml = '';
+    if (diffFromAvg >= 0) {
+      diffBadgeHtml = `<span class="historical-stat-badge status-positive">-${diffPct}% spesa (+${formatCurrency(diffFromAvg)} risparmiati)</span>`;
+    } else {
+      diffBadgeHtml = `<span class="historical-stat-badge status-warning">+${diffPct}% spesa rispetto alla media</span>`;
+    }
+
+    dom.historicalStatsBanner.innerHTML = `
+      <div class="historical-stat-item">
+        <span class="historical-stat-label">Spesa Mese Corrente</span>
+        <div class="historical-stat-val-group">
+          <span class="historical-stat-val">${formatCurrency(currentMonthData.spent)}</span>
+        </div>
+      </div>
+      <div class="historical-stat-item">
+        <span class="historical-stat-label">Media 5 Mesi Precedenti</span>
+        <div class="historical-stat-val-group">
+          <span class="historical-stat-val">${formatCurrency(prevAvgSpent)}</span>
+        </div>
+      </div>
+      <div class="historical-stat-item">
+        <span class="historical-stat-label">Andamento vs Media</span>
+        <div class="historical-stat-val-group">
+          ${diffBadgeHtml}
+        </div>
+      </div>
+      <div class="historical-stat-item">
+        <span class="historical-stat-label">Risparmio Netto (6 Mesi)</span>
+        <div class="historical-stat-val-group">
+          <span class="historical-stat-val" style="color: ${totalHistoricalSavings >= 0 ? 'var(--color-success)' : 'var(--color-danger)'};">
+            ${totalHistoricalSavings >= 0 ? '+' : ''}${formatCurrency(totalHistoricalSavings)}
+          </span>
+        </div>
+      </div>
+    `;
+
+    if (state.charts.line) {
+      state.charts.line.destroy();
+    }
+
+    state.charts.line = new Chart(dom.historicalTrendChart, {
+      type: 'line',
+      data: {
+        labels: lineLabels,
+        datasets: [
+          {
+            label: 'Spesa Totale Mensile',
+            data: lineSpentData,
+            borderColor: '#ec4899',
+            backgroundColor: function (context) {
+              const chart = context.chart;
+              const { ctx, chartArea } = chart;
+              if (!chartArea) return 'rgba(236, 72, 153, 0.15)';
+              const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+              gradient.addColorStop(0, 'rgba(236, 72, 153, 0.35)');
+              gradient.addColorStop(1, 'rgba(236, 72, 153, 0.0)');
+              return gradient;
+            },
+            fill: true,
+            tension: 0.35,
+            borderWidth: 3,
+            pointBackgroundColor: historicalData.map(h => h.isCurrent ? '#fb7185' : '#ec4899'),
+            pointBorderColor: isDark ? '#271325' : '#ffffff',
+            pointBorderWidth: 2,
+            pointRadius: historicalData.map(h => h.isCurrent ? 7 : 4),
+            pointHoverRadius: 9
+          },
+          {
+            label: 'Budget Stanziato',
+            data: lineBudgetData,
+            borderColor: '#a855f7',
+            borderDash: [6, 6],
+            borderWidth: 2,
+            fill: false,
+            pointRadius: 0,
+            pointHoverRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        scales: {
+          x: {
+            grid: { color: gridColor },
+            ticks: { color: textColor, font: { family: 'Inter', size: 12, weight: 600 } }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: gridColor },
+            ticks: {
+              color: textColor,
+              callback: function (val) { return val + ' €'; }
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: {
+              color: textColor,
+              boxWidth: 14,
+              font: { family: 'Inter', size: 12, weight: 500 }
+            }
+          },
+          tooltip: {
+            backgroundColor: tooltipBg,
+            titleColor: tooltipText,
+            bodyColor: tooltipText,
+            borderColor: isDark ? 'rgba(244,114,182,0.3)' : 'rgba(236,72,153,0.2)',
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              label: function (context) {
+                return ` ${context.dataset.label}: ${formatCurrency(context.raw)}`;
+              },
+              afterBody: function (items) {
+                const spentItem = items.find(it => it.datasetIndex === 0);
+                const budgetItem = items.find(it => it.datasetIndex === 1);
+                if (spentItem && budgetItem) {
+                  const sp = spentItem.raw || 0;
+                  const bg = budgetItem.raw || 0;
+                  const sav = bg - sp;
+                  const savLabel = sav >= 0 ? `Risparmio: +${formatCurrency(sav)}` : `Sforamento: -${formatCurrency(Math.abs(sav))}`;
+                  return [` ${savLabel}`];
+                }
+                return [];
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // -------------------------------------------------------------
+    // 2. CHART CATEGORIE (DONUT)
+    // -------------------------------------------------------------
+    const activeStats = Object.values(catStats).filter(item => item.spent > 0);
+    const donutLabels = activeStats.map(s => s.category.name);
     const donutData = activeStats.map(s => s.spent);
     const donutColors = activeStats.map(s => s.category.color || '#ec4899');
 
@@ -699,7 +1078,6 @@
     }
 
     if (donutData.length === 0) {
-      // Mostra un placeholder trasparente
       state.charts.donut = new Chart(dom.categoryDonutChart, {
         type: 'doughnut',
         data: {
@@ -765,20 +1143,21 @@
       });
     }
 
-    // 2. Chart Budget vs Spese per Città (Bar Chart)
-    const citiesMap = getStatsByCity();
-    const cityLabels = Object.keys(citiesMap);
-    const budgetData = cityLabels.map(city => citiesMap[city].totalBudget);
-    const spentData = cityLabels.map(city => citiesMap[city].totalSpent);
+    // -------------------------------------------------------------
+    // 3. CHART BUDGET VS SPESE PER CATEGORIA (BAR CHART)
+    // -------------------------------------------------------------
+    const categoryLabels = state.categories.map(c => c.name);
+    const budgetData = state.categories.map(c => Number(c.budget) || 0);
+    const spentData = state.categories.map(c => catStats[c.id] ? catStats[c.id].spent : 0);
 
     if (state.charts.bar) {
       state.charts.bar.destroy();
     }
 
-    state.charts.bar = new Chart(dom.cityBarChart, {
+    state.charts.bar = new Chart(dom.categoryBarChart, {
       type: 'bar',
       data: {
-        labels: cityLabels,
+        labels: categoryLabels,
         datasets: [
           {
             label: 'Budget Stanziato',
@@ -839,34 +1218,41 @@
       }
     });
 
-    // 3. Breakdown Summary Boxes
-    renderCityBreakdownBoxes(citiesMap);
+    // -------------------------------------------------------------
+    // 4. BREAKDOWN SUMMARY BOXES PER CATEGORIA
+    // -------------------------------------------------------------
+    renderCategoryBreakdownBoxes(catStats);
   }
 
-  function renderCityBreakdownBoxes(citiesMap) {
-    dom.citySummaryGrid.innerHTML = '';
-    Object.values(citiesMap).forEach(c => {
-      const pct = Math.round(c.percentage);
-      let pctClass = 'status-positive';
-      if (pct >= 100) pctClass = 'status-danger';
-      else if (pct >= 75) pctClass = 'status-warning';
+  function renderCategoryBreakdownBoxes(catStats) {
+    dom.categorySummaryGrid.innerHTML = '';
+    state.categories.forEach(cat => {
+      const stat = catStats[cat.id] || { spent: 0, budget: cat.budget, balance: cat.budget, percentage: 0 };
+      const pct = Math.round(stat.percentage);
+      const alarm = getBudgetAlarmInfo(stat.spent, stat.budget);
 
       const box = document.createElement('div');
-      box.className = 'city-summary-box';
+      box.className = 'category-summary-box';
       box.innerHTML = `
         <div class="cs-header">
-          <span class="cs-name">${c.city}</span>
-          <span class="status-indicator-tag ${pctClass}">${pct}% utilizzato</span>
+          <div class="cs-name-wrap">
+            <span class="category-badge-dot" style="background-color: ${cat.color || '#ec4899'}; color: ${cat.color || '#ec4899'};"></span>
+            <span class="cs-name">${escapeHtml(cat.name)}</span>
+          </div>
+          <span class="budget-alarm-badge ${alarm.statusClass}" style="font-size: 0.75rem; padding: 0.2rem 0.6rem;">
+            ${pct}% utilizzato
+          </span>
         </div>
         <div class="progress-bar-container">
-          <div class="progress-bar-fill ${pct >= 100 ? 'progress-red' : (pct >= 75 ? 'progress-yellow' : 'progress-green')}" style="width: ${Math.min(pct, 100)}%"></div>
+          <div class="progress-bar-fill ${alarm.progressClass}" style="width: ${Math.min(pct, 100)}%;"></div>
         </div>
         <div class="cs-stats">
-          <span>Speso: <strong>${formatCurrency(c.totalSpent)}</strong></span>
-          <span>Budget: <strong>${formatCurrency(c.totalBudget)}</strong></span>
+          <span>Speso: <strong>${formatCurrency(stat.spent)}</strong></span>
+          <span>Budget: <strong>${formatCurrency(stat.budget)}</strong></span>
+          <span>Saldo: <strong style="color: ${stat.balance < 0 ? 'var(--color-danger)' : 'var(--color-success)'};">${formatCurrency(stat.balance)}</strong></span>
         </div>
       `;
-      dom.citySummaryGrid.appendChild(box);
+      dom.categorySummaryGrid.appendChild(box);
     });
   }
 
@@ -874,70 +1260,47 @@
   // MODALE: GESTIONE CATEGORIE E BUDGET
   // ==========================================
 
-  function populateNewCategoryCities() {
-    const existingCities = Array.from(new Set(state.categories.map(c => c.city || 'Generale'))).sort();
-    dom.newCatCity.innerHTML = '';
-
-    existingCities.forEach(city => {
-      const opt = document.createElement('option');
-      opt.value = city;
-      opt.textContent = city;
-      dom.newCatCity.appendChild(opt);
-    });
-
-    const optNew = document.createElement('option');
-    optNew.value = '__NEW__';
-    optNew.textContent = '+ Crea Nuova Città...';
-    dom.newCatCity.appendChild(optNew);
-  }
-
   function renderCategoriesManagementList() {
     dom.categoriesManagementContainer.innerHTML = '';
 
-    const citiesMap = {};
+    const group = document.createElement('div');
+    group.className = 'cat-mgmt-group';
+
+    const totalBudget = state.categories.reduce((s, c) => s + (Number(c.budget) || 0), 0);
+
+    let itemsHtml = `
+      <div class="cat-mgmt-header">
+        <span>Elenco Categorie (${state.categories.length})</span>
+        <span style="color: var(--text-secondary); font-size: 0.85rem;">Budget Totale: <strong>${formatCurrency(totalBudget)}</strong></span>
+      </div>
+      <div class="cat-mgmt-items">
+    `;
+
     state.categories.forEach(cat => {
-      const city = cat.city || 'Generale';
-      if (!citiesMap[city]) citiesMap[city] = [];
-      citiesMap[city].push(cat);
-    });
-
-    Object.keys(citiesMap).sort().forEach(city => {
-      const group = document.createElement('div');
-      group.className = 'cat-mgmt-group';
-
-      const totalCityBudget = citiesMap[city].reduce((s, c) => s + (Number(c.budget) || 0), 0);
-
-      let itemsHtml = `
-        <div class="cat-mgmt-header">
-          <span>${city}</span>
-          <span style="color: var(--text-secondary); font-size: 0.85rem;">Totale Budget: ${formatCurrency(totalCityBudget)}</span>
-        </div>
-        <div class="cat-mgmt-items">
-      `;
-
-      citiesMap[city].forEach(cat => {
-        itemsHtml += `
-          <div class="cat-mgmt-row" data-cat-id="${cat.id}">
-            <span class="cat-mgmt-name">${cat.name}</span>
-            <div class="cat-mgmt-controls">
-              <div class="cat-budget-input-wrap">
-                <span>€</span>
-                <input type="number" step="0.5" min="0" value="${cat.budget.toFixed(2)}" class="cat-budget-field" data-cat-id="${cat.id}">
-              </div>
-              <button class="btn-table-action delete-action delete-cat-btn" data-cat-id="${cat.id}" title="Elimina categoria">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-              </button>
-            </div>
+      itemsHtml += `
+        <div class="cat-mgmt-row" data-cat-id="${cat.id}">
+          <div class="cat-mgmt-name-wrap">
+            <span class="category-badge-dot" style="background-color: ${cat.color || '#ec4899'}; color: ${cat.color || '#ec4899'};"></span>
+            <span class="cat-mgmt-name">${escapeHtml(cat.name)}</span>
           </div>
-        `;
-      });
-
-      itemsHtml += `</div>`;
-      group.innerHTML = itemsHtml;
-      dom.categoriesManagementContainer.appendChild(group);
+          <div class="cat-mgmt-controls">
+            <div class="cat-budget-input-wrap">
+              <span>€</span>
+              <input type="number" step="0.5" min="0" value="${cat.budget.toFixed(2)}" class="cat-budget-field" data-cat-id="${cat.id}" title="Modifica budget mensile per ${escapeHtml(cat.name)}">
+            </div>
+            <button class="btn-table-action delete-action delete-cat-btn" data-cat-id="${cat.id}" title="Elimina categoria">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+        </div>
+      `;
     });
 
-    // Event listeners per modifica budget al volo (onchange / onblur)
+    itemsHtml += `</div>`;
+    group.innerHTML = itemsHtml;
+    dom.categoriesManagementContainer.appendChild(group);
+
+    // Event listener per modifica budget al volo
     dom.categoriesManagementContainer.querySelectorAll('.cat-budget-field').forEach(input => {
       input.addEventListener('change', (e) => {
         const catId = e.target.dataset.catId;
@@ -952,6 +1315,7 @@
           cat.budget = newBudget;
           saveCategoriesToStorage();
           updateAllViews();
+          renderCategoriesManagementList();
           showToast(`Budget per "${cat.name}" aggiornato a ${formatCurrency(newBudget)}`, 'success');
         }
       });
@@ -970,36 +1334,86 @@
     const cat = state.categories.find(c => c.id === catId);
     if (!cat) return;
 
-    // Controllo se ci sono spese collegate
+    if (state.categories.length <= 1) {
+      showToast('Deve rimanere almeno una categoria attiva', 'warning');
+      return;
+    }
+
     const associatedExpenses = state.expenses.filter(e => e.categoryId === catId);
-    let confirmMsg = `Sei sicuro di voler eliminare la categoria "${cat.name}" (${cat.city})?`;
+    let confirmMsg = `Sei sicuro di voler eliminare la categoria "${cat.name}"?`;
     if (associatedExpenses.length > 0) {
-      confirmMsg += `\nAttenzione: ci sono ${associatedExpenses.length} spese registrate associate a questa categoria. Verranno mantenute senza categoria.`;
+      confirmMsg += `\nAttenzione: ci sono ${associatedExpenses.length} spese registrate in questa categoria. Rimarranno memorizzate.`;
     }
 
     if (confirm(confirmMsg)) {
       state.categories = state.categories.filter(c => c.id !== catId);
       saveCategoriesToStorage();
-      populateNewCategoryCities();
       renderCategoriesManagementList();
       updateAllViews();
       showToast(`Categoria "${cat.name}" eliminata`, 'info');
     }
   }
 
+  function handleAddNewCategory(e) {
+    e.preventDefault();
+
+    const name = dom.newCatName.value.trim();
+    const budget = parseFloat(dom.newCatBudget.value);
+
+    if (!name) {
+      showToast('Inserisci un nome per la categoria', 'error');
+      return;
+    }
+    if (isNaN(budget) || budget < 0) {
+      showToast('Inserisci un budget valido (>= 0)', 'error');
+      return;
+    }
+
+    // Controlla se esiste già una categoria con lo stesso nome
+    if (state.categories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+      showToast('Esiste già una categoria con questo nome', 'warning');
+      return;
+    }
+
+    // Seleziona un colore armonico
+    const colorIndex = state.categories.length % CATEGORY_PALETTE.length;
+    const color = CATEGORY_PALETTE[colorIndex];
+
+    const newCat = {
+      id: generateId('cat'),
+      name,
+      budget,
+      color
+    };
+
+    state.categories.push(newCat);
+    saveCategoriesToStorage();
+
+    // Reset form
+    dom.newCatName.value = '';
+    dom.newCatBudget.value = '';
+
+    renderCategoriesManagementList();
+    updateAllViews();
+
+    showToast(`Categoria "${name}" creata con successo`, 'success');
+  }
+
   // ==========================================
   // MODALE: AGGIUNTA / MODIFICA SPESA
   // ==========================================
 
-  function openNewExpenseModal() {
+  function openNewExpenseModal(preselectedCatId = null) {
     dom.expenseModalTitle.textContent = 'Nuova Spesa';
     dom.modalExpenseId.value = '';
     dom.modalExpenseDate.value = getTodayDateString();
+    dom.modalExpenseCity.value = '';
     dom.modalExpenseDesc.value = '';
     dom.modalExpenseAmount.value = '';
 
-    // Seleziona la prima categoria disponibile
-    if (state.categories.length > 0) {
+    if (preselectedCatId && state.categories.some(c => c.id === preselectedCatId)) {
+      dom.modalExpenseCategory.value = preselectedCatId;
+    } else if (state.categories.length > 0) {
       dom.modalExpenseCategory.value = state.categories[0].id;
     }
 
@@ -1015,6 +1429,7 @@
     dom.modalExpenseId.value = exp.id;
     dom.modalExpenseDate.value = exp.date;
     dom.modalExpenseCategory.value = exp.categoryId;
+    dom.modalExpenseCity.value = exp.city || '';
     dom.modalExpenseDesc.value = exp.description || '';
     dom.modalExpenseAmount.value = exp.amount;
 
@@ -1028,6 +1443,7 @@
     const id = dom.modalExpenseId.value;
     const date = dom.modalExpenseDate.value;
     const categoryId = dom.modalExpenseCategory.value;
+    const city = dom.modalExpenseCity.value.trim();
     const description = dom.modalExpenseDesc.value.trim();
     const amount = parseFloat(dom.modalExpenseAmount.value);
 
@@ -1048,7 +1464,7 @@
       // Modifica spesa esistente
       const index = state.expenses.findIndex(e => e.id === id);
       if (index !== -1) {
-        state.expenses[index] = { ...state.expenses[index], date, categoryId, description, amount };
+        state.expenses[index] = { ...state.expenses[index], date, categoryId, city, description, amount };
         showToast('Spesa modificata con successo', 'success');
       }
     } else {
@@ -1057,6 +1473,7 @@
         id: generateId('exp'),
         date,
         categoryId,
+        city,
         description,
         amount
       };
@@ -1067,7 +1484,7 @@
     saveExpensesToStorage();
     dom.expenseModal.classList.add('hidden');
 
-    // Se la spesa aggiunta è di un altro mese, aggiorniamo il mese selezionato per vederla subito
+    // Se la spesa aggiunta è di un altro mese, aggiorniamo la visualizzazione
     const [expYear, expMonth] = date.split('-').map(Number);
     if (expYear !== state.selectedYear || (expMonth - 1) !== state.selectedMonth) {
       state.selectedYear = expYear;
@@ -1098,6 +1515,7 @@
 
     const date = dom.qaDate.value;
     const categoryId = dom.qaCategory.value;
+    const city = dom.qaCity.value.trim();
     const description = dom.qaDescription.value.trim();
     const amount = parseFloat(dom.qaAmount.value);
 
@@ -1110,6 +1528,7 @@
       id: generateId('exp'),
       date,
       categoryId,
+      city,
       description,
       amount
     };
@@ -1117,7 +1536,8 @@
     state.expenses.push(newExp);
     saveExpensesToStorage();
 
-    // Svuota solo descrizione e importo per comodità di inserimento seriale
+    // Svuota i campi opzionali per favorire l'inserimento continuativo
+    dom.qaCity.value = '';
     dom.qaDescription.value = '';
     dom.qaAmount.value = '';
     dom.qaAmount.focus();
@@ -1130,63 +1550,7 @@
     }
 
     updateAllViews();
-    showToast(`Aggiunta spesa: -${formatCurrency(amount)}`, 'success');
-  }
-
-  // ==========================================
-  // AGGIUNTA NUOVA CATEGORIA (MODALE)
-  // ==========================================
-
-  function handleAddNewCategory(e) {
-    e.preventDefault();
-
-    let city = dom.newCatCity.value;
-    if (city === '__NEW__') {
-      city = dom.customCityInput.value.trim();
-      if (!city) {
-        showToast('Specifica il nome della nuova città', 'error');
-        return;
-      }
-    }
-
-    const name = dom.newCatName.value.trim();
-    const budget = parseFloat(dom.newCatBudget.value);
-
-    if (!name) {
-      showToast('Inserisci un nome per la categoria', 'error');
-      return;
-    }
-    if (isNaN(budget) || budget < 0) {
-      showToast('Inserisci un budget valido (>= 0)', 'error');
-      return;
-    }
-
-    // Colore casuale armonico - Palette rosa, corallo, pesca e lavanda
-    const colors = ['#f43f85', '#ec4899', '#fb7185', '#f472b6', '#e879f9', '#c084fc', '#fb923c', '#db2777', '#f43f5e', '#fda4af'];
-    const randomColor = colors[Math.floor(Math.random() * colors.length)];
-
-    const newCat = {
-      id: generateId('cat'),
-      city,
-      name,
-      budget,
-      color: randomColor
-    };
-
-    state.categories.push(newCat);
-    saveCategoriesToStorage();
-
-    // Reset form
-    dom.newCatName.value = '';
-    dom.newCatBudget.value = '';
-    dom.customCityInput.value = '';
-    dom.customCityGroup.classList.add('hidden');
-
-    populateNewCategoryCities();
-    renderCategoriesManagementList();
-    updateAllViews();
-
-    showToast(`Categoria "${name}" aggiunta con successo per ${city}`, 'success');
+    showToast(`Spesa registrata: -${formatCurrency(amount)}`, 'success');
   }
 
   // ==========================================
@@ -1203,13 +1567,13 @@
     const catMap = {};
     state.categories.forEach(c => { catMap[c.id] = c; });
 
-    let csvContent = 'Data;Città;Categoria;Descrizione;Importo (€)\r\n';
+    let csvContent = 'Data;Categoria;Città;Descrizione;Importo (€)\r\n';
     monthExpenses.forEach(e => {
-      const cat = catMap[e.categoryId] || { name: 'Non assegnata', city: 'Generale' };
+      const cat = catMap[e.categoryId] || { name: 'Non assegnata' };
       const row = [
         formatDateIT(e.date),
-        `"${cat.city}"`,
         `"${cat.name}"`,
+        `"${(e.city || '').replace(/"/g, '""')}"`,
         `"${(e.description || '').replace(/"/g, '""')}"`,
         (Number(e.amount) || 0).toFixed(2).replace('.', ',')
       ];
@@ -1220,7 +1584,7 @@
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Spese_${state.selectedYear}_${String(state.selectedMonth + 1).padStart(2, '0')}.csv`;
+    link.download = `PocketTracker_Spese_${state.selectedYear}_${String(state.selectedMonth + 1).padStart(2, '0')}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1235,7 +1599,7 @@
 
   function backupAllData() {
     const backupObj = {
-      version: 1,
+      version: 2,
       exportDate: new Date().toISOString(),
       categories: state.categories,
       expenses: state.expenses
@@ -1264,9 +1628,20 @@
       try {
         const importedData = JSON.parse(e.target.result);
         if (Array.isArray(importedData.categories) && Array.isArray(importedData.expenses)) {
-          if (confirm('Attenzione: il ripristino sostituirà tutti i dati attuali con quelli del backup. Vuoi continuare?')) {
-            state.categories = importedData.categories;
-            state.expenses = importedData.expenses;
+          if (confirm('Attenzione: il ripristino sostituirà tutti i dati correnti con quelli del backup. Vuoi continuare?')) {
+            // Se le categorie importate provengono da una v1, normalizza
+            state.categories = importedData.categories.map(c => ({
+              id: c.id,
+              name: c.name,
+              budget: Number(c.budget) || 0,
+              color: c.color || CATEGORY_PALETTE[0]
+            }));
+
+            state.expenses = importedData.expenses.map(exp => ({
+              ...exp,
+              city: exp.city || ''
+            }));
+
             saveCategoriesToStorage();
             saveExpensesToStorage();
             updateAllViews();
@@ -1278,19 +1653,19 @@
       } catch (err) {
         showToast('Errore durante la lettura del file JSON', 'error');
       }
-      event.target.value = ''; // Reset per consentire il re-upload dello stesso file
+      event.target.value = '';
     };
     reader.readAsText(file);
   }
 
   function resetToDefault() {
-    if (confirm('Sei sicuro di voler ripristinare le categorie di default iniziali (Brescia, Lissone, Generale per un totale di 200 €)? Le spese attuali verranno azzerate.')) {
+    if (confirm('Sei sicuro di voler reimpostare i dati predefiniti? Verranno ripristinate le categorie standard (totale 200 €) e i dati storici demo.')) {
       state.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
       state.expenses = createInitialDemoExpenses();
       saveCategoriesToStorage();
       saveExpensesToStorage();
       updateAllViews();
-      showToast('Dati reimpostati ai valori di default iniziali', 'success');
+      showToast('Dati reimpostati ai valori di default con trend storico', 'success');
     }
   }
 
@@ -1335,6 +1710,8 @@
       iconSvg = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';
     } else if (type === 'error') {
       iconSvg = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+    } else if (type === 'warning') {
+      iconSvg = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
     } else {
       iconSvg = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
     }
@@ -1350,20 +1727,6 @@
     }, 3200);
   }
 
-  function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>"']/g, function (m) {
-      switch (m) {
-        case '&': return '&amp;';
-        case '<': return '&lt;';
-        case '>': return '&gt;';
-        case '"': return '&quot;';
-        case "'": return '&#39;';
-        default: return m;
-      }
-    });
-  }
-
   // ==========================================
   // AGGIORNAMENTO GLOBALE DELLE VISTE
   // ==========================================
@@ -1372,7 +1735,7 @@
     renderMonthHeader();
     renderKpiCards();
     populateCategoryDropdowns();
-    renderCityCards();
+    renderCategoryCards();
     renderExpensesTable();
 
     if (state.activeTab === 'charts') {
@@ -1431,12 +1794,12 @@
     });
 
     // Modali: Apertura & Chiusura
-    dom.openNewExpenseModalBtn.addEventListener('click', openNewExpenseModal);
-    dom.quickAddExpenseTrigger.addEventListener('click', openNewExpenseModal);
+    dom.openNewExpenseModalBtn.addEventListener('click', () => openNewExpenseModal());
+    dom.quickAddExpenseTrigger.addEventListener('click', () => openNewExpenseModal());
     dom.manageCategoriesBtn.addEventListener('click', () => {
-      populateNewCategoryCities();
       renderCategoriesManagementList();
       dom.categoriesModal.classList.remove('hidden');
+      dom.newCatName.focus();
     });
 
     document.querySelectorAll('[data-close-modal]').forEach(btn => {
@@ -1466,20 +1829,10 @@
     dom.expenseModalForm.addEventListener('submit', handleSaveExpense);
     dom.addCategoryForm.addEventListener('submit', handleAddNewCategory);
 
-    // Cambio select città nel subform aggiungi categoria
-    dom.newCatCity.addEventListener('change', (e) => {
-      if (e.target.value === '__NEW__') {
-        dom.customCityGroup.classList.remove('hidden');
-        dom.customCityInput.focus();
-      } else {
-        dom.customCityGroup.classList.add('hidden');
-      }
-    });
-
     // Filtri tabella spese
     dom.expenseSearchInput.addEventListener('input', renderExpensesTable);
-    dom.filterCitySelect.addEventListener('change', renderExpensesTable);
     dom.filterCategorySelect.addEventListener('change', renderExpensesTable);
+    dom.filterCitySelect.addEventListener('change', renderExpensesTable);
     dom.exportCsvBtn.addEventListener('click', exportExpensesToCsv);
 
     // Footer actions
